@@ -44,22 +44,39 @@ def generate_yaml(prompt: str, namespace: str, kind: str) -> str:
 
 
 def apply_yaml(yaml_text: str) -> tuple[str, str]:
-    """Call FastAPI: POST /api/apply"""
+    """
+    Call FastAPI: POST /api/apply
+    Backend returns:
+        { "success": bool, "message": str, "raw": str }
+    """
     try:
         r = requests.post(api("/api/apply"), json={"yaml": yaml_text})
         r.raise_for_status()
         data = r.json()
-        return data.get("status", ""), data.get("raw", "")
+
+        # CORRECT FIX: backend sends "message" not "status"
+        message = data.get("message", "")
+        raw = data.get("raw", "")
+
+        return message, raw
+
     except Exception as e:
         return f"❌ ERROR: {e}", ""
 
 
 def get_snapshot() -> str:
-    """Call FastAPI: GET /api/snapshot"""
+    """
+    Call FastAPI: GET /api/snapshot
+    Backend returns JSON (not 'snapshot' field)
+    We must pretty-format the JSON output.
+    """
     try:
         r = requests.get(api("/api/snapshot"))
         r.raise_for_status()
-        return r.json().get("snapshot", "No snapshot available")
+        data = r.json()
+        import json
+        return json.dumps(data, indent=2)
+
     except Exception as e:
         return f"ERROR fetching snapshot: {e}"
 
@@ -76,7 +93,7 @@ def get_logs_once(pod_name: str, tail: int) -> str:
 
 
 def follow_logs(pod_name: str, tail: int):
-    """Streaming generator for follow logs."""
+    """Streaming logs (auto-refresh every 2s)"""
     while True:
         html = get_logs_once(pod_name, tail)
         yield html
@@ -96,7 +113,7 @@ FastAPI Backend URL in use:
 
 ### **🔗 {BACKEND_URL}**
 
-_(Set AGENTCTL_BACKEND_URL environment variable to override)_
+Set `AGENTCTL_BACKEND_URL` to override.
 
 ---
 """)
@@ -148,7 +165,7 @@ _(Set AGENTCTL_BACKEND_URL environment variable to override)_
             )
 
         # ----------------------------------------------------------
-        # TAB 2 — Dashboard
+        # TAB 2 — Cluster Dashboard
         # ----------------------------------------------------------
         with gr.Tab("Cluster Dashboard"):
             refresh_button = gr.Button("Refresh Snapshot", variant="primary")
@@ -157,7 +174,7 @@ _(Set AGENTCTL_BACKEND_URL environment variable to override)_
             refresh_button.click(fn=get_snapshot, outputs=snapshot_box)
 
         # ----------------------------------------------------------
-        # TAB 3 — Pods Logs
+        # TAB 3 — Pod Logs
         # ----------------------------------------------------------
         with gr.Tab("Pod Logs"):
             pod_name = gr.Textbox(label="Pod Name")
