@@ -1,3 +1,15 @@
+---
+title: AgentCTL – Kubernetes Agent UI
+emoji: 🧠
+colorFrom: blue
+colorTo: green
+sdk: gradio
+sdk_version: "4.42.0"
+app_file: app.py
+pinned: false
+---
+
+
 # AgentCTL — LLM-Driven Kubernetes Automation  
 ### Natural Language → Kubernetes Jobs, Deployments & CronJobs  
 Built for real clusters via Minikube + kubectl proxy + ngrok or Cloudflare Tunnel.
@@ -204,7 +216,7 @@ spec:
 ## ❤️ Credits
 
 Built by **Murali Chandran (codeninja3d)**  
-AI Agents • Kubernetes • MLOps • VFX Pipelines
+AI Agents • Kubernetes • MLOps
 
 ---
 
