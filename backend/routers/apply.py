@@ -1,37 +1,88 @@
+# backend/routers/apply.py
+
 from fastapi import APIRouter
 from pydantic import BaseModel
-import uuid, yaml
+import uuid
+import yaml
 
 from agentctl.k8s_client import K8sClient
 
-router = APIRouter(prefix="/api", tags=["Apply"])
+router = APIRouter(tags=["Apply Manifest"])
 
-client = K8sClient()
 
 class ApplyRequest(BaseModel):
     yaml: str
 
+
 class ApplyResponse(BaseModel):
     success: bool
     message: str
-    raw: str
+    raw: str | None = None
 
-def inject_unique(yaml_text: str) -> str:
+
+def _inject_unique_name(yaml_text: str) -> str:
+    """
+    Add a short UUID suffix to metadata.name for Job/CronJob/Deployment
+    to avoid 409 AlreadyExists errors when users re-apply the same YAML.
+    """
     try:
-        obj = yaml.safe_load(yaml_text)
-        kind = obj.get("kind")
+        data = yaml.safe_load(yaml_text)
+        if not isinstance(data, dict):
+            return yaml_text
 
-        if kind in ["Job", "CronJob", "Deployment"]:
-            suffix = str(uuid.uuid4())[:5]
-            obj["metadata"]["name"] += f"-{suffix}"
+        kind = data.get("kind")
+        if kind not in {"Job", "CronJob", "Deployment"}:
+            return yaml_text
 
-        return yaml.safe_dump(obj)
-    except:
+        meta = data.get("metadata") or {}
+        base_name = meta.get("name")
+        if not base_name:
+            return yaml_text
+
+        suffix = str(uuid.uuid4())[:5]
+        new_name = f"{base_name}-{suffix}"
+        meta["name"] = new_name
+        data["metadata"] = meta
+
+        # For CronJob make sure template labels are consistent
+        if kind == "CronJob":
+            tmpl = (
+                data.get("spec", {})
+                .get("jobTemplate", {})
+                .get("spec", {})
+                .get("template", {})
+            )
+            if isinstance(tmpl, dict):
+                md = tmpl.get("metadata") or {}
+                labels = md.get("labels") or {}
+                labels["app"] = new_name
+                md["labels"] = labels
+                tmpl["metadata"] = md
+
+        return yaml.safe_dump(data)
+    except Exception:
+        # on failure, just return original yaml
         return yaml_text
 
+
 @router.post("/apply", response_model=ApplyResponse)
-def apply_resource(req: ApplyRequest):
-    final_yaml = inject_unique(req.yaml)
+def apply_manifest(req: ApplyRequest):
+    """
+    Apply a YAML manifest to the Kubernetes cluster via K8sClient.
+    """
+    # Lazy K8sClient instantiation so missing env vars don't crash import
+    client = K8sClient()
+
+    final_yaml = _inject_unique_name(req.yaml)
     result = client.apply_manifest(final_yaml)
-    raw = str(result.raw_response)
-    return ApplyResponse(success=result.success, message=result.message, raw=raw)
+
+    try:
+        raw_str = str(result.raw_response)
+    except Exception:
+        raw_str = None
+
+    return ApplyResponse(
+        success=result.success,
+        message=result.message,
+        raw=raw_str,
+    )

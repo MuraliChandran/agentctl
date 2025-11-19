@@ -9,22 +9,24 @@ app = FastAPI(
     description="Backend API for Kubernetes AgentCTL automation",
 )
 
-# CORS (UI → API)
+# CORS (for Gradio UI, HF Space, other tools)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten later if needed
+    allow_origins=["*"],  # tighten later for prod
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Routers
-app.include_router(yaml_gen.router)
-app.include_router(apply.router)
-app.include_router(snapshot.router)
-app.include_router(logs.router)
 
-
-@app.get("/")
+@app.get("/", tags=["Status"])
 def root():
+    """Simple health endpoint."""
     return {"status": "AgentCTL Backend Running"}
+
+
+# Attach routers under /api/*
+app.include_router(yaml_gen.router, prefix="/api")
+app.include_router(apply.router, prefix="/api")
+app.include_router(snapshot.router, prefix="/api")
+app.include_router(logs.router, prefix="/api")

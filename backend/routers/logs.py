@@ -1,11 +1,20 @@
-from fastapi import APIRouter
+# backend/routers/logs.py
+
+from fastapi import APIRouter, Query
+
 from agentctl.k8s_client import K8sClient
 
-router = APIRouter(prefix="/api", tags=["Logs"])
+router = APIRouter(tags=["Logs"])
 
-client = K8sClient()
 
 @router.get("/logs")
-def get_logs(pod_name: str, tail: int = 100):
-    logs = client.get_pod_logs(pod_name, tail)
-    return {"pod": pod_name, "tail": tail, "logs": logs}
+def get_logs(
+    pod_name: str = Query(..., description="Pod name from snapshot"),
+    tail: int = Query(100, ge=1, le=1000, description="Tail lines"),
+):
+    """
+    Return raw logs for a given pod (no HTML, just plain text).
+    """
+    client = K8sClient()
+    text = client.get_pod_logs(pod_name.strip(), tail_lines=tail)
+    return {"pod_name": pod_name, "tail": tail, "logs": text}
