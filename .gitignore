@@ -1,0 +1,97 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pkl
+*.pyd
+*.so
+
+# Virtual environment
+.venv/
+env/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# --- OS files ---
+.DS_Store
+Thumbs.db
+
+# --- VSCode / JetBrains ---
+.vscode/
+.idea/
+
+# --- Logs ---
+*.log
+logs/
+*.out
+*.err
+
+# --- Build / Packaging ---
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# --- Cache ---
+.cache/
+*.cache
+*.mypy_cache/
+*.pytest_cache/
+*.ruff_cache/
+
+# --- Hugging Face / HF Spaces ---
+hf_cache/
+huggingface/
+.environment/
+
+# --- Temp artifacts ---
+tmp/
+temp/
+*.tmp
+
+# --- Credentials / secrets (DO NOT COMMIT) ---
+.env
+.env.local
+.env.*        # safe because no secrets go into repo
+secrets.yml
+*.json.secret
+*.key
+*.pem
+
+# --- Kubernetes ---
+# kubeconfigs or kube generated files
+kubeconfig
+.kube/
+*.yaml.bak
+*~    # backups
+
+# --- Models / Checkpoints ---
+*.pt
+*.bin
+*.onnx
+models/
+checkpoints/
+
+# --- Node (if future UI additions) ---
+node_modules/
+npm-debug.log*
+
+# --- Gradio ---
+gradio_cached_examples/
+
+# --- Ngrok (just in case) ---
+ngrok.yml
+.ngrok/
+
+# --- Minikube artifacts ---
+minikube/
+.kubectl-proxy/
+
+
+# Block OpenAI keys if accidentally named
+openai_key.txt
+openai_api_key.txt
