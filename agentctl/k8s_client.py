@@ -18,6 +18,8 @@ from .schemas import (
     CronJobStatus,
 )
 
+from dotenv import load_dotenv
+load_dotenv()
 
 class K8sClient:
     def __init__(self, base_url: str | None = None, namespace: str | None = None):

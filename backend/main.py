@@ -30,3 +30,13 @@ app.include_router(yaml_gen.router, prefix="/api")
 app.include_router(apply.router, prefix="/api")
 app.include_router(snapshot.router, prefix="/api")
 app.include_router(logs.router, prefix="/api")
+
+
+@app.get("/debug-env")
+def debug_env():
+    import os
+    return {
+        "K8S_API_BASE_URL": os.getenv("K8S_API_BASE_URL"),
+        "K8S_NAMESPACE": os.getenv("K8S_NAMESPACE"),
+        "K8S_VERIFY_SSL": os.getenv("K8S_VERIFY_SSL")
+    }
