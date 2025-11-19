@@ -3,7 +3,7 @@ name: Sync GitHub (master) → Hugging Face Space (main)
 on:
   push:
     branches:
-      - master   # your GitHub branch
+      - master
 
 jobs:
   sync:
@@ -25,7 +25,7 @@ jobs:
           git clone https://codeninja3d:${HF_TOKEN}@huggingface.co/spaces/codeninja3d/agentctl hf-space
 
           echo "📤 Syncing GitHub files → HF Space (rsync)"
-          rsync -av --delete --exclude=".git" ./ hf-space/
+          rsync -av --delete --exclude=".git" ./ hf-space/ || true
 
           cd hf-space
 
@@ -33,7 +33,7 @@ jobs:
           git add .
           git commit -m "Sync from GitHub on master ($(date))" || echo "No changes"
 
-          echo "⬆️ Pushing to Hugging Face Space (HF uses main)"
+          echo "⬆️ Pushing to Hugging Face Space (main branch)"
           git push https://codeninja3d:${HF_TOKEN}@huggingface.co/spaces/codeninja3d/agentctl HEAD:main
 
           echo "🎉 Sync complete!"
