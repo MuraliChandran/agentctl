@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.routers import yaml_gen, apply, snapshot, logs
+from backend.routers import yaml_gen, apply, snapshot, logs, agent
 
 app = FastAPI(
     title="AgentCTL Backend API",
@@ -30,7 +30,7 @@ app.include_router(yaml_gen.router, prefix="/api")
 app.include_router(apply.router, prefix="/api")
 app.include_router(snapshot.router, prefix="/api")
 app.include_router(logs.router, prefix="/api")
-
+app.include_router(agent.router, prefix="/api") 
 
 @app.get("/debug-env")
 def debug_env():

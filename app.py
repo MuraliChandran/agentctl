@@ -56,6 +56,24 @@ def apply_yaml(yaml_text: str) -> tuple[str, str]:
     except Exception as e:
         return f"ERROR: {e}", ""
 
+def run_agent(instruction: str, namespace: str, kind: str):
+    """Call FastAPI: POST /api/agent"""
+    try:
+        payload = {
+            "instruction": instruction,
+            "namespace": namespace,
+            "kind": kind
+        }
+        r = requests.post(api("/api/agent"), json=payload)
+        r.raise_for_status()
+
+        data = r.json()
+        return (
+            data.get("yaml", "# No YAML"), 
+            data.get("result", {})
+        )
+    except Exception as e:
+        return f"# ERROR: {e}", {}
 
 # -------------------------------------------------------------------
 # Snapshot Formatter (Emoji-Free)
@@ -218,6 +236,46 @@ Set `AGENTCTL_BACKEND_URL` to override.
                 fn=follow_logs,
                 inputs=[pod_name, tail_lines],
                 outputs=logs_html
+            )
+
+        # ----------------------------------------------------------
+        # TAB 4 — Agent Mode (LLM → YAML → Apply)
+        # ----------------------------------------------------------
+        with gr.Tab("Agent Mode"):
+            gr.Markdown("""
+                ## Agentic LLM Mode
+                Enter natural language instructions and let the backend agent:
+                1. Plan the Kubernetes operation  
+                2. Generate YAML (LLM → fallback → validated)
+                3. Apply it to the cluster  
+                """)
+
+            instruction = gr.Textbox(
+                label="Instruction",
+                lines=4,
+                placeholder="e.g. deploy a pytorch training job with 1 GPU"
+            )
+
+            namespace2 = gr.Textbox(
+                label="Namespace",
+                value="default"
+            )
+
+            kind2 = gr.Dropdown(
+                label="Kind Override (optional)",
+                choices=["Auto", "Job", "Deployment", "CronJob"],
+                value="Auto"
+            )
+
+            run_btn = gr.Button("Run Agent")
+
+            agent_yaml = gr.Code(label="Generated YAML", language="yaml")
+            agent_result = gr.JSON(label="API Apply Result")
+
+            run_btn.click(
+                fn=run_agent,
+                inputs=[instruction, namespace2, kind2],
+                outputs=[agent_yaml, agent_result]
             )
 
     return ui
