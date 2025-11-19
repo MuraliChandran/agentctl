@@ -17,6 +17,8 @@ BACKEND_URL = os.getenv(
     "http://127.0.0.1:9000"  # default for local development
 )
 
+print(f"🔗 AgentCTL Backend URL: {BACKEND_URL}")
+
 # Helper to join backend URL
 def api(path: str) -> str:
     return f"{BACKEND_URL}{path}"
