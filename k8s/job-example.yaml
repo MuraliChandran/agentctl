@@ -1,4 +1,21 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: example
+  name: example-echo-job
+  namespace: default
+spec:
+  template:
+    metadata:
+      labels:
+        app: agentctl-example
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: main
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Hello from example job";
+              sleep 10;

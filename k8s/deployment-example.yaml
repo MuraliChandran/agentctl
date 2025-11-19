@@ -1,4 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: example
+  name: example-nginx-deployment
+  namespace: default
+  labels:
+    app: agentctl-nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agentctl-nginx
+  template:
+    metadata:
+      labels:
+        app: agentctl-nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
