@@ -17,7 +17,7 @@ BACKEND_URL = os.getenv(
     "http://127.0.0.1:9000"  # default for local development
 )
 
-print(f"🔗 AgentCTL Backend URL: {BACKEND_URL}")
+print(f"AgentCTL Backend URL: {BACKEND_URL}")
 
 # Helper to join backend URL
 def api(path: str) -> str:
@@ -44,41 +44,57 @@ def generate_yaml(prompt: str, namespace: str, kind: str) -> str:
 
 
 def apply_yaml(yaml_text: str) -> tuple[str, str]:
-    """
-    Call FastAPI: POST /api/apply
-    Backend returns:
-        { "success": bool, "message": str, "raw": str }
-    """
+    """Call FastAPI: POST /api/apply"""
     try:
         r = requests.post(api("/api/apply"), json={"yaml": yaml_text})
         r.raise_for_status()
         data = r.json()
-
-        # CORRECT FIX: backend sends "message" not "status"
+        # Backend sends message + raw
         message = data.get("message", "")
         raw = data.get("raw", "")
-
         return message, raw
-
     except Exception as e:
-        return f"❌ ERROR: {e}", ""
+        return f"ERROR: {e}", ""
 
 
-def get_snapshot() -> str:
-    """
-    Call FastAPI: GET /api/snapshot
-    Backend returns JSON (not 'snapshot' field)
-    We must pretty-format the JSON output.
-    """
-    try:
-        r = requests.get(api("/api/snapshot"))
-        r.raise_for_status()
-        data = r.json()
-        import json
-        return json.dumps(data, indent=2)
+# -------------------------------------------------------------------
+# Snapshot Formatter (Emoji-Free)
+# -------------------------------------------------------------------
 
-    except Exception as e:
-        return f"ERROR fetching snapshot: {e}"
+def format_snapshot(data):
+    lines = []
+
+    lines.append(f"Namespace: {data.get('namespace','default')}\n")
+    lines.append("==== JOBS ====\n")
+
+    for job in data.get("jobs", []):
+        if job["succeeded"] > 0:
+            status = "Completed"
+        elif job["failed"] > 0:
+            status = "Failed"
+        elif job["active"] > 0:
+            status = "Active"
+        else:
+            status = "Pending"
+
+        lines.append(
+            f"{job['name']}: {status} | Active={job['active']} | Success={job['succeeded']} | Failed={job['failed']}"
+        )
+
+    lines.append("\n==== PODS ====\n")
+
+    for pod in data.get("pods", []):
+        phase = pod["phase"]
+        lines.append(f"{pod['name']}: {phase}")
+
+    lines.append("\n==== CRONJOBS ====\n")
+
+    for cj in data.get("cronjobs", []):
+        lines.append(
+            f"{cj['name']}: Active={cj['active']} | LastSchedule={cj['last_schedule']}"
+        )
+
+    return "\n".join(lines)
 
 
 def get_logs_once(pod_name: str, tail: int) -> str:
@@ -89,7 +105,7 @@ def get_logs_once(pod_name: str, tail: int) -> str:
         r.raise_for_status()
         return r.json().get("logs", "No logs received")
     except Exception as e:
-        return f"<span style='color:red;'>ERROR: {e}</span>"
+        return f"ERROR: {e}"
 
 
 def follow_logs(pod_name: str, tail: int):
@@ -108,13 +124,12 @@ def build_ui():
     with gr.Blocks(title="AgentCTL Frontend (FastAPI Backend)") as ui:
 
         gr.Markdown(f"""
-# 🚀 AgentCTL (Frontend)
-FastAPI Backend URL in use:
+# AgentCTL (Frontend)
 
-### **🔗 {BACKEND_URL}**
+Backend URL in use:
+**{BACKEND_URL}**
 
 Set `AGENTCTL_BACKEND_URL` to override.
-
 ---
 """)
 
@@ -133,22 +148,18 @@ Set `AGENTCTL_BACKEND_URL` to override.
                         "- schedule a cleanup script every 5 minutes\n"
                     )
                 )
-
                 with gr.Column():
-                    namespace = gr.Textbox(
-                        label="Namespace",
-                        value="default"
-                    )
+                    namespace = gr.Textbox(label="Namespace", value="default")
                     kind = gr.Dropdown(
                         label="Kind",
                         choices=["Auto", "Job", "Deployment", "CronJob"],
                         value="Auto"
                     )
 
-            generate_btn = gr.Button("Generate YAML", variant="primary")
+            generate_btn = gr.Button("Generate YAML")
             yaml_box = gr.Code(label="Generated YAML", language="yaml")
 
-            apply_btn = gr.Button("Apply YAML to Cluster", variant="primary")
+            apply_btn = gr.Button("Apply YAML to Cluster")
             apply_status = gr.Textbox(label="Status")
             apply_raw = gr.Textbox(label="Raw API Response")
 
@@ -157,7 +168,6 @@ Set `AGENTCTL_BACKEND_URL` to override.
                 inputs=[prompt, namespace, kind],
                 outputs=yaml_box
             )
-
             apply_btn.click(
                 fn=apply_yaml,
                 inputs=[yaml_box],
@@ -168,10 +178,22 @@ Set `AGENTCTL_BACKEND_URL` to override.
         # TAB 2 — Cluster Dashboard
         # ----------------------------------------------------------
         with gr.Tab("Cluster Dashboard"):
-            refresh_button = gr.Button("Refresh Snapshot", variant="primary")
+            refresh_button = gr.Button("Refresh Snapshot")
             snapshot_box = gr.Textbox(label="Cluster Snapshot", lines=25)
 
-            refresh_button.click(fn=get_snapshot, outputs=snapshot_box)
+            def get_formatted_snapshot():
+                try:
+                    r = requests.get(api("/api/snapshot"))
+                    r.raise_for_status()
+                    data = r.json()
+                    return format_snapshot(data)
+                except Exception as e:
+                    return f"ERROR fetching snapshot: {e}"
+
+            refresh_button.click(
+                fn=get_formatted_snapshot,
+                outputs=snapshot_box
+            )
 
         # ----------------------------------------------------------
         # TAB 3 — Pod Logs
@@ -179,14 +201,11 @@ Set `AGENTCTL_BACKEND_URL` to override.
         with gr.Tab("Pod Logs"):
             pod_name = gr.Textbox(label="Pod Name")
             tail_lines = gr.Slider(
-                label="Tail Lines",
-                minimum=10,
-                maximum=500,
-                value=100
+                label="Tail Lines", minimum=10, maximum=500, value=100
             )
 
             get_logs_btn = gr.Button("Get Logs")
-            follow_logs_btn = gr.Button("Follow Logs (Live)", variant="primary")
+            follow_logs_btn = gr.Button("Follow Logs (Live)")
             logs_html = gr.HTML(label="Logs Terminal")
 
             get_logs_btn.click(
