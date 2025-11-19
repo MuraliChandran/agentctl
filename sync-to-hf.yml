@@ -1,0 +1,39 @@
+name: Sync GitHub (master) → Hugging Face Space (main)
+
+on:
+  push:
+    branches:
+      - master   # your GitHub branch
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Sync files to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          echo "🔐 Configuring Git"
+          git config --global user.email "actions@github.com"
+          git config --global user.name "GitHub Actions"
+
+          echo "📥 Cloning Hugging Face Space repo"
+          git clone https://codeninja3d:${HF_TOKEN}@huggingface.co/spaces/codeninja3d/agentctl hf-space
+
+          echo "📤 Syncing GitHub files → HF Space (rsync)"
+          rsync -av --delete --exclude=".git" ./ hf-space/
+
+          cd hf-space
+
+          echo "📌 Committing changes"
+          git add .
+          git commit -m "Sync from GitHub on master ($(date))" || echo "No changes"
+
+          echo "⬆️ Pushing to Hugging Face Space (HF uses main)"
+          git push https://codeninja3d:${HF_TOKEN}@huggingface.co/spaces/codeninja3d/agentctl HEAD:main
+
+          echo "🎉 Sync complete!"
