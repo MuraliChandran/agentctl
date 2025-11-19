@@ -3,6 +3,8 @@
 import os
 import re
 import time
+import uuid
+import yaml
 from typing import Tuple
 
 import gradio as gr
@@ -13,183 +15,194 @@ from agentctl.agent import K8sAgent
 
 
 # ---------------------------------------------------------------------
-# Core objects
+# Core - Agent + Client
 # ---------------------------------------------------------------------
 
 agent = K8sAgent()
 
-
 def _get_client() -> K8sClient:
-    """Create a Kubernetes HTTP client using env-based config."""
     return K8sClient()
 
 
 # ---------------------------------------------------------------------
-# YAML generation + apply
+# Unique Name Injection
 # ---------------------------------------------------------------------
 
+def _inject_unique_name(yaml_text: str) -> str:
+    """
+    Add unique suffix to metadata.name for Job, Deployment, CronJob.
+    Prevents 409 AlreadyExists errors.
+    """
+    try:
+        data = yaml.safe_load(yaml_text)
+        if not isinstance(data, dict):
+            return yaml_text
+
+        kind = data.get("kind")
+        if kind not in {"Job", "CronJob", "Deployment"}:
+            return yaml_text
+
+        base = data["metadata"]["name"]
+        suffix = str(uuid.uuid4())[:5]
+        new_name = f"{base}-{suffix}"
+        data["metadata"]["name"] = new_name
+
+        # Patch CronJob template labels
+        if kind == "CronJob":
+            jt = data["spec"]["jobTemplate"]["spec"]["template"]
+            if "metadata" in jt:
+                if "labels" in jt["metadata"]:
+                    jt["metadata"]["labels"]["app"] = new_name
+                else:
+                    jt["metadata"]["labels"] = {"app": new_name}
+
+        return yaml.safe_dump(data)
+
+    except Exception:
+        return yaml_text
+
+
+# ---------------------------------------------------------------------
+# YAML Generation + Apply
+# ---------------------------------------------------------------------
 
 def generate_yaml_from_prompt(prompt: str, namespace: str, kind: str) -> str:
-    """Convert natural language + kind selection into YAML."""
     if not prompt.strip():
         return "# Enter a description, e.g. 'run a python preprocessing job'"
 
     ns = namespace.strip() or settings.k8s_namespace
     kind_sel = None if kind == "Auto" else kind
 
-    _, yaml_text = agent.nl_to_resource_yaml(
-        prompt,
-        namespace=ns,
-        kind=kind_sel,
-    )
+    _, yaml_text = agent.nl_to_resource_yaml(prompt, namespace=ns, kind=kind_sel)
     return yaml_text
 
 
 def apply_yaml_to_cluster(yaml_text: str) -> Tuple[str, str]:
-    """Apply a YAML manifest to the cluster via K8s API."""
     if not yaml_text.strip():
         return "No YAML to apply.", ""
+
+    # Add unique suffix before applying
+    yaml_text = _inject_unique_name(yaml_text)
 
     client = _get_client()
     result = client.apply_manifest(yaml_text)
 
-    raw_str = ""
-    if result.raw_response is not None:
-        try:
-            raw_str = str(result.raw_response)
-        except Exception:
-            raw_str = "<unserialisable response>"
+    try:
+        raw = str(result.raw_response)
+    except:
+        raw = "<unserialisable>"
 
     prefix = "✅" if result.success else "❌"
-    return f"{prefix} {result.message}", raw_str
+    return f"{prefix} {result.message}", raw
 
 
 # ---------------------------------------------------------------------
-# Dashboard snapshot
+# Cluster Snapshot
 # ---------------------------------------------------------------------
-
 
 def get_cluster_snapshot() -> str:
-    """Return a human-readable snapshot of Jobs, Pods, Deployments, CronJobs."""
     client = _get_client()
     snap = client.snapshot()
 
-    lines: list[str] = [f"Namespace: {snap.namespace}", ""]
+    out = [f"Namespace: {snap.namespace}", ""]
 
-    # Jobs
-    lines.append("Jobs:")
+    out.append("Jobs:")
     if not snap.jobs:
-        lines.append("  (no jobs)")
+        out.append("  (no jobs)")
     else:
         for j in snap.jobs:
-            lines.append(
-                f"  - {j.name}: succeeded={j.succeeded}, "
-                f"failed={j.failed}, active={j.active}"
+            out.append(
+                f"  - {j.name}: succeeded={j.succeeded}, failed={j.failed}, active={j.active}"
             )
 
-    # Pods
-    lines.append("")
-    lines.append("Pods:")
+    out.append("")
+    out.append("Pods:")
     if not snap.pods:
-        lines.append("  (no pods)")
+        out.append("  (no pods)")
     else:
         for p in snap.pods:
-            lines.append(f"  - {p.name}: phase={p.phase}")
+            out.append(f"  - {p.name}: phase={p.phase}")
 
-    # Deployments
-    lines.append("")
-    lines.append("Deployments:")
+    out.append("")
+    out.append("Deployments:")
     if not snap.deployments:
-        lines.append("  (no deployments)")
+        out.append("  (no deployments)")
     else:
         for d in snap.deployments:
-            lines.append(
-                f"  - {d.name}: replicas={d.replicas}, ready={d.ready}"
-            )
+            out.append(f"  - {d.name}: replicas={d.replicas}, ready={d.ready}")
 
-    # CronJobs
-    lines.append("")
-    lines.append("CronJobs:")
+    out.append("")
+    out.append("CronJobs:")
     if not snap.cronjobs:
-        lines.append("  (no cronjobs)")
+        out.append("  (no cronjobs)")
     else:
         for c in snap.cronjobs:
             last = c.last_schedule or "never"
-            lines.append(
-                f"  - {c.name}: active={c.active}, lastScheduleTime={last}"
-            )
+            out.append(f"  - {c.name}: active={c.active}, lastScheduleTime={last}")
 
-    return "\n".join(lines)
+    return "\n".join(out)
 
 
 # ---------------------------------------------------------------------
-# Logs helpers (colorised terminal + live follow)
+# Logs System
 # ---------------------------------------------------------------------
-
-
-def _fetch_pod_logs_raw(pod_name: str, tail_lines: int) -> str:
-    """Internal: raw log text from Kubernetes."""
-    client = _get_client()
-    return client.get_pod_logs(pod_name.strip(), tail_lines=tail_lines)
-
 
 def _colorize_logs(text: str) -> str:
-    """Convert log text into HTML with basic severity colouring."""
     if not text:
         return "<span style='color:#888;'>No logs</span>"
 
-    lines = text.splitlines()
-    out: list[str] = []
-
-    for line in lines:
+    html_lines = []
+    for line in text.splitlines():
         if re.search(r"(error|failed|exception)", line, re.IGNORECASE):
-            colour = "#ff4b4b"  # red
-        elif re.search(r"(warn)", line, re.IGNORECASE):
-            colour = "#f7c843"  # yellow
+            color = "#ff4b4b"
+        elif re.search(r"warn", line, re.IGNORECASE):
+            color = "#f7c843"
         elif re.search(r"(info|started|running|completed)", line, re.IGNORECASE):
-            colour = "#5ad55a"  # green
+            color = "#5ad55a"
         else:
-            colour = "#d0d0d0"  # grey
+            color = "#d0d0d0"
 
         safe = line.replace("<", "&lt;").replace(">", "&gt;")
-        out.append(f"<span style='color:{colour};'>{safe}</span>")
+        html_lines.append(f"<span style='color:{color};'>{safe}</span>")
 
-    return "<br>".join(out)
+    return "<br>".join(html_lines)
 
 
 def get_pod_logs_once(pod_name: str, tail_lines: int) -> str:
-    """One-shot logs fetch, used for the 'Get logs' button."""
     pod_name = pod_name.strip()
     if not pod_name:
-        return "<span style='color:#ff4b4b;'>Enter a pod name from the dashboard.</span>"
+        return "<span style='color:#ff4b4b;'>Enter a pod name.</span>"
 
-    raw = _fetch_pod_logs_raw(pod_name, tail_lines)
+    client = _get_client()
+    raw = client.get_pod_logs(pod_name, tail_lines)
     return _colorize_logs(raw)
 
 
 def follow_pod_logs(pod_name: str, tail_lines: int):
-    """Live streaming logs using Gradio generator output."""
     pod_name = pod_name.strip()
     if not pod_name:
-        yield "<span style='color:#ff4b4b;'>Enter a pod name from the dashboard.</span>"
+        yield "<span style='color:#ff4b4b;'>Enter a pod name.</span>"
         return
 
+    client = _get_client()
     while True:
-        raw = _fetch_pod_logs_raw(pod_name, tail_lines)
-        html = _colorize_logs(raw)
-        yield html
+        raw = client.get_pod_logs(pod_name, tail_lines)
+        yield _colorize_logs(raw)
         time.sleep(2)
 
 
-# CSS for the logs "terminal"
+# ---------------------------------------------------------------------
+# Logs CSS
+# ---------------------------------------------------------------------
+
 TERMINAL_CSS = """
 #logs_terminal {
-    background-color: #111111 !important;
-    color: #d0d0d0 !important;
-    font-family: monospace !important;
+    background-color: #111;
+    color: #ddd;
+    font-family: monospace;
     padding: 14px;
     border-radius: 8px;
-    border: 1px solid #444444;
+    border: 1px solid #444;
     height: 420px;
     overflow-y: scroll;
     white-space: pre-wrap;
@@ -198,141 +211,104 @@ TERMINAL_CSS = """
 
 
 # ---------------------------------------------------------------------
-# Gradio UI
+# UI
 # ---------------------------------------------------------------------
-
 
 def build_app() -> gr.Blocks:
     with gr.Blocks(
         title="AgentCTL: LLM-Driven Kubernetes Automation",
         css=TERMINAL_CSS,
     ) as demo:
-        # Top environment hint (like your screenshot)
-        gr.Markdown(
-            """
-### 🔧 Environment configuration
 
-- `K8S_API_BASE_URL` → **public K8s API URL** (ngrok / Cloudflare tunnel over `kubectl proxy`)
-- `K8S_NAMESPACE` → **default namespace** (e.g. `default`)
-- `K8S_VERIFY_SSL` → **true/false** (set `false` for self-signed ngrok endpoints)
-- `AGENTCTL_USE_LLM` → **true/false** (optional; uses OpenAI if enabled in `agent.py`)
-- `OPENAI_API_KEY` → your key (if LLM mode enabled)
-
+        gr.Markdown("""
+### 🔧 Environment
+- `K8S_API_BASE_URL`  
+- `K8S_NAMESPACE`  
+- `K8S_VERIFY_SSL`  
+- `OPENAI_API_KEY` (optional)
 ---
-"""
-        )
+""")
 
-        # ============================================================
-        # Create Resource tab
-        # ============================================================
+        # -----------------------------------------------------------------
+        # Create Resource
+        # -----------------------------------------------------------------
         with gr.Tab("Create Resource"):
             with gr.Row():
                 prompt = gr.Textbox(
-                    label="Describe the resource you want",
+                    label="Describe the resource",
                     placeholder=(
-                        "Examples:\n"
-                        "- run a python job to preprocess data\n"
+                        "- run a python job\n"
                         "- create an nginx deployment with 3 replicas\n"
-                        "- schedule a python cleanup job every 5 minutes\n"
+                        "- schedule a cleanup script every 5 minutes\n"
                     ),
                     lines=5,
                 )
 
                 with gr.Column():
                     namespace = gr.Textbox(
-                        label="Kubernetes namespace",
+                        label="Namespace",
                         value=settings.k8s_namespace,
-                        lines=1,
                     )
                     kind = gr.Dropdown(
                         label="Resource kind",
                         choices=["Auto", "Job", "Deployment", "CronJob"],
                         value="Auto",
                     )
-                    gr.Markdown(
-                        "Tip: leave **Auto** to let the agent infer Job vs Deployment vs CronJob."
-                    )
 
             generate_btn = gr.Button("Generate YAML", variant="primary")
-            yaml_box = gr.Code(
-                label="Generated manifest (YAML)",
-                language="yaml",
-                lines=22,
-            )
+            yaml_box = gr.Code(language="yaml", lines=22, label="Generated YAML")
 
             apply_btn = gr.Button("Apply to cluster")
-            apply_msg = gr.Textbox(label="Status", interactive=False)
-            apply_raw = gr.Textbox(label="Raw API response (debug)")
+            apply_msg = gr.Textbox(label="Status")
+            apply_debug = gr.Textbox(label="Raw API Response")
 
             generate_btn.click(
-                fn=generate_yaml_from_prompt,
+                generate_yaml_from_prompt,
                 inputs=[prompt, namespace, kind],
                 outputs=yaml_box,
             )
-
             apply_btn.click(
-                fn=apply_yaml_to_cluster,
+                apply_yaml_to_cluster,
                 inputs=[yaml_box],
-                outputs=[apply_msg, apply_raw],
+                outputs=[apply_msg, apply_debug],
             )
 
-        # ============================================================
-        # Cluster Dashboard tab
-        # ============================================================
+        # -----------------------------------------------------------------
+        # Dashboard
+        # -----------------------------------------------------------------
         with gr.Tab("Cluster Dashboard"):
-            gr.Markdown(
-                "Snapshot of **Jobs, Pods, Deployments, CronJobs** in the target namespace."
-            )
             snapshot_btn = gr.Button("Refresh snapshot", variant="primary")
-            snapshot_box = gr.Textbox(
-                label="Cluster overview",
-                lines=25,
-                interactive=False,
-            )
+            snapshot_box = gr.Textbox(lines=25, label="Cluster Overview")
 
             snapshot_btn.click(
-                fn=get_cluster_snapshot,
+                get_cluster_snapshot,
                 inputs=[],
-                outputs=[snapshot_box],
+                outputs=snapshot_box,
             )
 
-        # ============================================================
-        # Pod Logs tab
-        # ============================================================
+        # -----------------------------------------------------------------
+        # Logs
+        # -----------------------------------------------------------------
         with gr.Tab("Pod Logs"):
-            gr.Markdown(
-                "Paste a pod name from the **Cluster Dashboard** (e.g. `agentctl-job-lnrcp`) "
-                "and fetch its logs. Use **Follow logs** for a live `kubectl logs -f` style view."
-            )
+            pod_name = gr.Textbox(label="Pod name")
+            tail_lines = gr.Slider(10, 500, step=10, value=100, label="Tail lines")
 
-            pod_name = gr.Textbox(
-                label="Pod name",
-                placeholder="e.g. preprocess-job-z48rz",
-            )
-            tail_lines = gr.Slider(
-                label="Tail lines",
-                minimum=10,
-                maximum=500,
-                step=10,
-                value=100,
-            )
+            get_logs_btn = gr.Button("Get logs once")
+            follow_logs_btn = gr.Button("Follow logs (live)", variant="primary")
 
-            with gr.Row():
-                get_logs_btn = gr.Button("Get logs once")
-                follow_logs_btn = gr.Button("Follow logs (live)", variant="primary")
-
-            logs_box = gr.HTML(label="Logs", elem_id="logs_terminal")
+            logs_box = gr.HTML(elem_id="logs_terminal", label="Logs")
 
             get_logs_btn.click(
-                fn=get_pod_logs_once,
-                inputs=[pod_name, tail_lines],
-                outputs=[logs_box],
-            )
-            
-            follow_logs_btn.click(
-                fn=follow_pod_logs,
+                get_pod_logs_once,
                 inputs=[pod_name, tail_lines],
                 outputs=logs_box,
+            )
+
+            follow_logs_btn.click(
+                follow_pod_logs,
+                inputs=[pod_name, tail_lines],
+                outputs=logs_box,
+                stream=True,
             )
 
     return demo
