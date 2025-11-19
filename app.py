@@ -81,7 +81,6 @@ def apply_yaml_to_cluster(yaml_text: str) -> Tuple[str, str]:
     if not yaml_text.strip():
         return "No YAML to apply.", ""
 
-    # Add unique suffix before applying
     yaml_text = _inject_unique_name(yaml_text)
 
     client = _get_client()
@@ -229,9 +228,7 @@ def build_app() -> gr.Blocks:
 ---
 """)
 
-        # -----------------------------------------------------------------
         # Create Resource
-        # -----------------------------------------------------------------
         with gr.Tab("Create Resource"):
             with gr.Row():
                 prompt = gr.Textbox(
@@ -273,9 +270,7 @@ def build_app() -> gr.Blocks:
                 outputs=[apply_msg, apply_debug],
             )
 
-        # -----------------------------------------------------------------
         # Dashboard
-        # -----------------------------------------------------------------
         with gr.Tab("Cluster Dashboard"):
             snapshot_btn = gr.Button("Refresh snapshot", variant="primary")
             snapshot_box = gr.Textbox(lines=25, label="Cluster Overview")
@@ -286,9 +281,7 @@ def build_app() -> gr.Blocks:
                 outputs=snapshot_box,
             )
 
-        # -----------------------------------------------------------------
         # Logs
-        # -----------------------------------------------------------------
         with gr.Tab("Pod Logs"):
             pod_name = gr.Textbox(label="Pod name")
             tail_lines = gr.Slider(10, 500, step=10, value=100, label="Tail lines")
@@ -304,11 +297,11 @@ def build_app() -> gr.Blocks:
                 outputs=logs_box,
             )
 
+            # FIXED: removed `stream=True`
             follow_logs_btn.click(
                 follow_pod_logs,
                 inputs=[pod_name, tail_lines],
                 outputs=logs_box,
-                stream=True,
             )
 
     return demo
