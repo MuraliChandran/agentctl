@@ -1,6 +1,7 @@
-gradio>=4.0.0
-requests>=2.31.0
-PyYAML>=6.0
-pydantic>=2.7.0
-python-dotenv>=1.0.0
-openai>=1.0.0   # for LLM-based YAML generation
+gradio==4.26.0
+huggingface_hub==0.19.4
+requests==2.31.0
+PyYAML==6.0
+pydantic==2.7.0
+python-dotenv==1.0.0
+openai==1.0.0
