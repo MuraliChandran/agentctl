@@ -81,11 +81,6 @@ def run_agent(instruction: str, namespace: str, kind: str):
     except Exception as e:
         return f"# ERROR: {e}", {}, "ERROR"
 
-
-# -------------------------------------------------------------------
-# Snapshot Formatter (Emoji-Free)
-# -------------------------------------------------------------------
-
 def format_snapshot(data):
     lines = []
 
