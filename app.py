@@ -68,12 +68,19 @@ def run_agent(instruction: str, namespace: str, kind: str):
         r.raise_for_status()
 
         data = r.json()
-        return (
-            data.get("yaml", "# No YAML"), 
-            data.get("result", {})
-        )
+
+        yaml_text = data.get("yaml", "# No YAML")
+        result = data.get("result", {})
+        mode = data.get("mode", "unknown")
+        model = data.get("model", "none")
+
+        info = f"Mode: {mode}\nModel: {model}"
+
+        return yaml_text, result, info
+
     except Exception as e:
-        return f"# ERROR: {e}", {}
+        return f"# ERROR: {e}", {}, "ERROR"
+
 
 # -------------------------------------------------------------------
 # Snapshot Formatter (Emoji-Free)
@@ -270,13 +277,17 @@ Set `AGENTCTL_BACKEND_URL` to override.
             run_btn = gr.Button("Run Agent")
 
             agent_yaml = gr.Code(label="Generated YAML", language="yaml")
-            agent_result = gr.JSON(label="API Apply Result")
+            agent_result = gr.JSON(label="Apply Result")
+            agent_info = gr.Textbox(label="Agent Info (LLM / Fallback)")
+
 
             run_btn.click(
                 fn=run_agent,
                 inputs=[instruction, namespace2, kind2],
-                outputs=[agent_yaml, agent_result]
+                outputs=[agent_yaml, agent_result, agent_info]
             )
+
+
 
     return ui
 

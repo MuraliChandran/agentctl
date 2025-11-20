@@ -13,7 +13,7 @@ async def run_agent(payload: dict):
     Agentic flow:
       1. LLM → Plan → YAML (fallback: K8sAgent)
       2. Apply YAML to Kubernetes
-      3. Return plan, yaml, result
+      3. Return yaml, mode, model, result
     """
 
     instruction = payload.get("instruction")
@@ -23,12 +23,16 @@ async def run_agent(payload: dict):
     if not instruction:
         raise HTTPException(status_code=400, detail="Missing instruction")
 
-    # 1. Generate YAML (LLM + fallback)
-    yaml_text = await agent_service.generate_yaml(
+    # 1. Generate YAML (LLM + fallback) → returns dict
+    agent_output = await agent_service.generate_yaml(
         instruction,
         namespace,
         kind
     )
+
+    yaml_text = agent_output["yaml"]
+    mode = agent_output["mode"]
+    model = agent_output["model"]
 
     # 2. Apply YAML to K8s
     client = K8sClient()
@@ -37,8 +41,11 @@ async def run_agent(payload: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"K8s apply failed: {e}")
 
+    # 3. Return everything to UI
     return {
         "instruction": instruction,
         "yaml": yaml_text,
+        "mode": mode,
+        "model": model,
         "result": apply_result
     }
