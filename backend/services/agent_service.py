@@ -42,10 +42,25 @@ class AgentService:
         # 1) LLM PLAN STEP
         # -------------------------------
         plan_prompt = f"""
-        You are an expert Kubernetes engineer.
-        Convert this natural-language instruction into a step-by-step plan.
-        Instruction: {prompt}
-        """
+            Convert this plan into valid Kubernetes YAML.
+            HARD RULES:
+            - kind: Job
+            - image: busybox or python:3.10-slim only
+            - restartPolicy: Never
+            - No GPUs, no ML, no training.
+            - Commands MUST be simple (echo/sleep/ls)
+            - No markdown
+            - No commentary
+
+            Plan:
+            {prompt}
+            Output:
+            - workload type
+            - image
+            - command
+            - args
+            """
+
 
         try:
             plan = await ask_llm(plan_prompt)
